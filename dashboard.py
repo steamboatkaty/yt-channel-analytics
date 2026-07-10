@@ -17,7 +17,68 @@ import streamlit as st
 
 DB_PATH = "youtube_data.db"
 
-st.set_page_config(page_title="YouTube Kids Channel Analytics", layout="wide")
+st.set_page_config(page_title="YouTube Kids Channel Analytics", page_icon="🎬", layout="wide")
+
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
+
+    h1 {
+        font-family: 'Baloo 2', sans-serif !important;
+        color: #22223B !important;
+    }
+
+    h2, h3 {
+        font-family: 'Baloo 2', sans-serif !important;
+        color: #6A4C93 !important;
+    }
+
+    [data-testid="stMetricValue"] {
+        font-family: 'JetBrains Mono', monospace;
+        color: #FF6B6B;
+    }
+
+    [data-testid="stMetric"] {
+        background-color: #F3EFE3;
+        border-radius: 12px;
+        border-top: 4px solid #2EC4B6;
+        padding: 12px 16px 8px 16px;
+    }
+
+    .stTabs [aria-selected="true"] {
+        color: #FF6B6B !important;
+        border-bottom-color: #FF6B6B !important;
+    }
+
+    section[data-testid="stSidebar"] {
+        background-color: #F3EFE3;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <div style="display: flex; align-items: center; gap: 14px; margin-bottom: -8px;">
+        <svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="24" width="8" height="18" rx="2" fill="#FF6B6B"/>
+            <rect x="14" y="14" width="8" height="28" rx="2" fill="#2EC4B6"/>
+            <rect x="26" y="6" width="8" height="36" rx="2" fill="#FFC145"/>
+            <circle cx="38" cy="10" r="6" fill="#6A4C93"/>
+            <path d="M36 7.5L41 10L36 12.5V7.5Z" fill="#FFFDF7"/>
+        </svg>
+        <h1 style="margin: 0;">YouTube Kids Channel Analytics</h1>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+st.caption("Videos uploaded in the last 90 days")
 
 
 @st.cache_data
@@ -35,9 +96,6 @@ def load_data():
 
 
 channels, videos = load_data()
-
-st.title("YouTube Kids Channel Analytics")
-st.caption("Videos uploaded in the last 90 days")
 
 # --- Sidebar: channel picker, built to scale to 100+ channels ---
 with st.sidebar:
@@ -130,7 +188,11 @@ with tab1:
         .encode(
             x=alt.X("publish_month:N", title="Month"),
             y=alt.Y("videos:Q", title="Videos"),
-            color=alt.Color("content_type:N", title="Content type"),
+            color=alt.Color(
+                "content_type:N",
+                title="Content type",
+                scale=alt.Scale(domain=["Short", "Long-form"], range=["#FF6B6B", "#2EC4B6"]),
+            ),
             tooltip=["publish_month", "content_type", "videos"],
         )
     )
@@ -153,7 +215,7 @@ with tab1:
     )
     views_chart = (
         alt.Chart(monthly_views)
-        .mark_bar()
+        .mark_bar(color="#6A4C93")
         .encode(
             x=alt.X("publish_month:N", title="Month"),
             y=alt.Y("view_count:Q", title="Total views"),
@@ -213,7 +275,7 @@ with tab3:
     )
     length_chart = (
         alt.Chart(bucket_summary)
-        .mark_bar()
+        .mark_bar(color="#FFC145")
         .encode(
             x=alt.X("duration_bucket:N", title="Duration bucket", sort=labels),
             y=alt.Y("avg_views:Q", title="Avg. views"),
