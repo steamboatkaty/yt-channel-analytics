@@ -24,6 +24,10 @@ st.markdown(
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap');
 
+    .block-container {
+        padding-top: 1.5rem;
+    }
+
     html, body, [class*="css"] {
         font-family: 'Inter', sans-serif;
     }
@@ -102,10 +106,11 @@ with st.sidebar:
     st.header("Channels")
 
     channels = channels.copy()
-    channels["category"] = channels["category"].fillna("Uncategorized")
+    channels["category"] = channels["category"].fillna("Uncategorized").str.title()
     categories = sorted(channels["category"].unique())
 
     st.write("**Filter by category**")
+    st.caption("Leave empty to show all categories")
     cat_col_a, cat_col_b = st.columns(2)
     if cat_col_a.button("Select all categories", use_container_width=True):
         st.session_state.category_multiselect = categories
@@ -120,17 +125,36 @@ with st.sidebar:
     category_filter = st.multiselect(
         "Filter by category",
         categories,
-        default=categories,
+        default=[],
         key="category_multiselect",
         label_visibility="collapsed",
     )
 
-    category_matched = channels[channels["category"].isin(category_filter)]
-    channel_names = category_matched.sort_values("title")["title"].tolist()
+    # An empty selection means "no category restriction" (show everything),
+    # not "show nothing" -- categories only narrow things down when chosen.
+    if category_filter:
+        category_matched = channels[channels["category"].isin(category_filter)]
+    else:
+        category_matched = channels
 
     st.divider()
 
     st.write("**Search channels**")
+    search_query = st.text_input(
+        "Search channels by name",
+        "",
+        label_visibility="collapsed",
+        placeholder="Search by name...",
+    )
+    if search_query:
+        name_matched = category_matched[
+            category_matched["title"].str.contains(search_query, case=False, na=False)
+        ]
+    else:
+        name_matched = category_matched
+
+    channel_names = name_matched.sort_values("title")["title"].tolist()
+
     chan_col_a, chan_col_b = st.columns(2)
     if chan_col_a.button("Select all channels", use_container_width=True):
         st.session_state.channel_multiselect = channel_names
@@ -173,8 +197,8 @@ with tab1:
     total_shorts = int((filtered["content_type"] == "Short").sum())
     total_longform = int((filtered["content_type"] == "Long-form").sum())
     col_s, col_l = st.columns(2)
-    col_s.metric("Shorts uploaded", total_shorts)
-    col_l.metric("Long-form uploaded", total_longform)
+    col_s.metric("Shorts uploaded", f"{total_shorts:,}")
+    col_l.metric("Long-form uploaded", f"{total_longform:,}")
 
     st.subheader("Uploads over time, by type")
     monthly_by_type = (
@@ -283,8 +307,10 @@ with tab3:
         )
     )
     st.altair_chart(length_chart, use_container_width=True)
+
+    bucket_summary_sorted = bucket_summary.sort_values("avg_views", ascending=False)
     st.dataframe(
-        bucket_summary,
+        bucket_summary_sorted,
         column_config={
             "duration_bucket": st.column_config.TextColumn("Duration bucket", width="medium"),
             "videos": st.column_config.NumberColumn("Videos", width="small", format="%,d"),
@@ -295,8 +321,11 @@ with tab3:
 
 with tab4:
     st.subheader("Channel summary")
+    channel_summary_sorted = channels[
+        ["title", "category", "subscriber_count", "view_count", "video_count"]
+    ].sort_values("view_count", ascending=False)
     st.dataframe(
-        channels[["title", "category", "subscriber_count", "view_count", "video_count"]],
+        channel_summary_sorted,
         column_config={
             "title": st.column_config.TextColumn("Channel", width="large"),
             "category": st.column_config.TextColumn("Category", width="small"),
