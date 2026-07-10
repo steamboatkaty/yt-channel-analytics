@@ -163,7 +163,7 @@ with st.sidebar:
     if selected:
         st.caption(f"{len(selected)} of {len(channel_names)} channels selected")
     else:
-        st.caption(f"Showing all {len(channel_names)} channels (none excluded)")
+        st.caption(f"Showing all {len(channel_names)} channels")
 
 filtered = videos.merge(
     channels[["channel_id", "title"]].rename(columns={"title": "channel_title"}),
