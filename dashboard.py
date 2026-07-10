@@ -110,7 +110,6 @@ with st.sidebar:
     categories = sorted(channels["category"].unique())
 
     st.write("**Filter by category**")
-    st.caption("Leave empty to show all categories")
     cat_col_a, cat_col_b = st.columns(2)
     if cat_col_a.button("Select all categories", use_container_width=True):
         st.session_state.category_multiselect = categories
@@ -140,20 +139,7 @@ with st.sidebar:
     st.divider()
 
     st.write("**Search channels**")
-    search_query = st.text_input(
-        "Search channels by name",
-        "",
-        label_visibility="collapsed",
-        placeholder="Search by name...",
-    )
-    if search_query:
-        name_matched = category_matched[
-            category_matched["title"].str.contains(search_query, case=False, na=False)
-        ]
-    else:
-        name_matched = category_matched
-
-    channel_names = name_matched.sort_values("title")["title"].tolist()
+    channel_names = category_matched.sort_values("title")["title"].tolist()
 
     chan_col_a, chan_col_b = st.columns(2)
     if chan_col_a.button("Select all channels", use_container_width=True):
@@ -169,18 +155,25 @@ with st.sidebar:
     selected = st.multiselect(
         "Search channels",
         channel_names,
-        default=channel_names,
+        default=[],
         key="channel_multiselect",
         label_visibility="collapsed",
+        placeholder="Type to search channels...",
     )
 
-    st.caption(f"{len(selected)} of {len(channel_names)} channels selected")
+    if selected:
+        st.caption(f"{len(selected)} of {len(channel_names)} channels selected")
+    else:
+        st.caption(f"Showing all {len(channel_names)} channels (none excluded)")
 
 filtered = videos.merge(
     channels[["channel_id", "title"]].rename(columns={"title": "channel_title"}),
     on="channel_id",
 )
-filtered = filtered[filtered["channel_title"].isin(selected)]
+# An empty channel selection means "no restriction" (show everything),
+# same as the category filter -- selecting specific channels narrows things.
+if selected:
+    filtered = filtered[filtered["channel_title"].isin(selected)]
 
 # --- Top-line metrics ---
 col1, col2, col3 = st.columns(3)
@@ -286,8 +279,8 @@ with tab2:
 
 with tab3:
     st.subheader("Views by content length")
-    bins = [0, 60, 300, 600, 1200, 1800, 3600, 999999]
-    labels = ["<1min (Short)", "1-5min", "5-10min", "10-20min", "20-30min", "30-60min", "60min+"]
+    bins = [0, 60, 600, 1800, 3600, 5400, 999999]
+    labels = ["Shorts", "1-10 min", "10-30 min", "30-60 min", "60-90 min", "90+ min"]
     plot_df = filtered.copy()
     plot_df["duration_bucket"] = pd.cut(
         plot_df["duration_seconds"], bins=bins, labels=labels, right=True

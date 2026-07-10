@@ -6,8 +6,12 @@ in a local SQLite database (raw, minimally transformed — that happens in
 transform.py / the dashboard).
 
 Usage:
+    # pass channel IDs directly:
     python fetch_data.py UCxxxxxxxx UCyyyyyyyy
-    (pass one or more YouTube channel IDs as arguments)
+
+    # or, for bulk additions, put one channel ID per line in a text file
+    # (blank lines and lines starting with # are ignored) and run:
+    python fetch_data.py --file channels.txt
 
 Finding a channel ID:
     Go to the channel's page -> "..." or About -> Share -> Copy channel ID
@@ -17,8 +21,10 @@ Finding a channel ID:
 import os
 import sys
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 
+import requests
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
@@ -26,8 +32,9 @@ load_dotenv()
 
 API_KEY = os.getenv("YOUTUBE_API_KEY")
 DB_PATH = "youtube_data.db"
-
 DAYS_LOOKBACK = 90  # fetch videos published within this many days, per channel
+MAX_SHORT_DURATION = 180  # seconds; YouTube's current Shorts eligibility ceiling
+
 
 def load_channel_ids_from_file(path: str) -> list:
     """
@@ -60,6 +67,7 @@ def load_channel_ids_from_file(path: str) -> list:
             entries.append((channel_id, category))
     return entries
 
+
 def get_client():
     if not API_KEY:
         sys.exit("Missing YOUTUBE_API_KEY. Copy .env.example to .env and add your key.")
@@ -75,6 +83,7 @@ def init_db(conn):
             subscriber_count INTEGER,
             view_count INTEGER,
             video_count INTEGER,
+            category TEXT,
             fetched_at TEXT
         );
 
@@ -91,8 +100,8 @@ def init_db(conn):
             fetched_at TEXT
         );
         """
-
     )
+    # Migration: if the DB was created before "category" existed, add it now
     try:
         conn.execute("ALTER TABLE channels ADD COLUMN category TEXT")
     except sqlite3.OperationalError:
@@ -171,6 +180,36 @@ def fetch_video_ids_since(youtube, playlist_id: str, days: int = DAYS_LOOKBACK, 
     return video_ids
 
 
+def is_actual_short(session: requests.Session, video_id: str, duration_seconds: int) -> bool:
+    """
+    The YouTube Data API has no official field indicating whether a video is
+    a Short -- duration alone isn't reliable, since Shorts can be up to
+    MAX_SHORT_DURATION seconds long, but not every video under that length
+    is a Short (orientation matters too, and that isn't exposed either).
+
+    This checks YouTube's own behavior instead: youtube.com/shorts/{id}
+    resolves normally (200) if YouTube treats the video as a Short, and
+    redirects away (e.g. 303) if it doesn't. This is an unofficial, undocumented
+    behavior (not a public API) -- it could change or break without notice,
+    so any failure falls back to the duration-only heuristic rather than
+    crashing the fetch.
+    """
+    if duration_seconds > MAX_SHORT_DURATION:
+        return False  # can't possibly be a Short; skip the network call entirely
+
+    try:
+        resp = session.head(
+            f"https://www.youtube.com/shorts/{video_id}",
+            allow_redirects=False,
+            timeout=5,
+        )
+        return resp.status_code == 200
+    except requests.RequestException:
+        # Unofficial check failed (network issue, rate limiting, etc.) --
+        # fall back to the old duration-only heuristic rather than failing.
+        return duration_seconds <= 60
+
+
 def fetch_video_details(youtube, video_ids: list) -> list:
     """
     Batch-fetch stats + duration for up to 50 video IDs at a time.
@@ -179,8 +218,9 @@ def fetch_video_details(youtube, video_ids: list) -> list:
     zero-length one) until they finish — those are skipped rather than
     crashing the whole fetch.
     """
-    videos = []
+    raw_items = []
     skipped = 0
+
     for i in range(0, len(video_ids), 50):
         batch = video_ids[i : i + 50]
         resp = youtube.videos().list(
@@ -192,23 +232,50 @@ def fetch_video_details(youtube, video_ids: list) -> list:
             if not duration_str:
                 skipped += 1
                 continue
+            raw_items.append((item, parse_iso8601_duration(duration_str)))
 
-            duration_seconds = parse_iso8601_duration(duration_str)
-            videos.append(
-                {
-                    "video_id": item["id"],
-                    "channel_id": item["snippet"]["channelId"],
-                    "title": item["snippet"]["title"],
-                    "published_at": item["snippet"]["publishedAt"],
-                    "duration_seconds": duration_seconds,
-                    "is_short": 1 if duration_seconds <= 60 else 0,
-                    "view_count": int(item["statistics"].get("viewCount", 0)),
-                    "like_count": int(item["statistics"].get("likeCount", 0)),
-                    "comment_count": int(item["statistics"].get("commentCount", 0)),
-                }
-            )
     if skipped:
         print(f"  (skipped {skipped} video(s) with no fixed duration, e.g. live/premiere)")
+
+    # Only videos short enough to possibly be Shorts need the network check;
+    # anything longer is instantly long-form with no request at all.
+    candidates = [
+        (item["id"], duration) for item, duration in raw_items if duration <= MAX_SHORT_DURATION
+    ]
+
+    is_short_by_id = {}
+    if candidates:
+        print(f"  Checking Shorts status for {len(candidates)} video(s) (parallel)...")
+        session = requests.Session()
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            futures = {
+                executor.submit(is_actual_short, session, video_id, duration): video_id
+                for video_id, duration in candidates
+            }
+            for future in as_completed(futures):
+                video_id = futures[future]
+                try:
+                    is_short_by_id[video_id] = future.result()
+                except Exception:
+                    is_short_by_id[video_id] = False
+
+    videos = []
+    for item, duration_seconds in raw_items:
+        is_short = is_short_by_id.get(item["id"], False)
+        videos.append(
+            {
+                "video_id": item["id"],
+                "channel_id": item["snippet"]["channelId"],
+                "title": item["snippet"]["title"],
+                "published_at": item["snippet"]["publishedAt"],
+                "duration_seconds": duration_seconds,
+                "is_short": 1 if is_short else 0,
+                "view_count": int(item["statistics"].get("viewCount", 0)),
+                "like_count": int(item["statistics"].get("likeCount", 0)),
+                "comment_count": int(item["statistics"].get("commentCount", 0)),
+            }
+        )
+
     return videos
 
 
