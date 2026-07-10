@@ -1,119 +1,108 @@
-# YouTube Channel Analytics Pipeline
+# YouTube Channel Analytics
 
-A small end-to-end data pipeline: pulls channel + video data from the YouTube
-Data API, lands it in SQLite, and visualizes performance — upload activity,
-top content, engagement, and content-length trends — in an interactive
-dashboard. Shorts vs. long-form is just one lens among several, not the
-whole point.
+An end-to-end data pipeline and interactive dashboard for tracking YouTube channel performance. Pulls channel and video-level data from the YouTube Data API, stores it in SQLite, and visualizes upload activity, top content, and content-length trends through a Streamlit dashboard.
 
-This mirrors the kind of analysis you already do in Metabase/ClickHouse —
-the difference is you're now owning the whole chain: ingestion, storage,
-transformation, and presentation.
+Built to analyze content strategy across multiple channels — upload frequency, Shorts vs. long-form mix, and view performance — with support for bulk channel management and category tagging.
 
----
+## Features
 
-## Saturday: get data flowing
+- **Automated data pipeline** — pulls channel stats and recent video metadata (views, likes, duration, publish date) via the YouTube Data API v3
+- **Rolling 90-day window** — fetches videos published in the last 90 days per channel, rather than a fixed video count, for fair comparison across channels with different upload frequencies
+- **Bulk channel management** — add channels in bulk via a text file, with category tagging (e.g. cartoon, live action, mixed) for filtering
+- **Interactive dashboard** — four views covering upload activity, top-performing content, content-length breakdown, and a channel-level summary
+- **Resilient fetching** — handles edge cases like live streams/premieres with no fixed duration, and skips gracefully rather than failing the whole run
 
-### 1. Get a YouTube Data API key (~15 min)
-1. Go to https://console.cloud.google.com/
-2. Create a new project (top left dropdown -> New Project)
-3. In the search bar, find "YouTube Data API v3" -> click **Enable**
-4. Go to **APIs & Services -> Credentials -> Create Credentials -> API key**
-5. Copy the key
+## Tech stack
 
-### 2. Set up the project (~10 min)
+- **Python** — data pipeline and transformation logic
+- **YouTube Data API v3** — source data
+- **SQLite** — local storage
+- **pandas** — data wrangling
+- **Streamlit + Altair** — interactive dashboard and charts
+
+## Setup
+
+### Prerequisites
+- Python 3.10+
+- A Google Cloud project with the YouTube Data API v3 enabled ([console.cloud.google.com](https://console.cloud.google.com))
+
+### Installation
+
 ```bash
-# unzip/cd into this folder, then:
+git clone <this-repo-url>
+cd <repo-folder>
 python3 -m venv venv
-source venv/bin/activate        # on Mac
+source venv/bin/activate     # on Windows: venv\Scripts\activate
 pip install -r requirements.txt
-
-cp .env.example .env
-# open .env and paste your API key in
 ```
 
-### 3. Pick some channels and pull data (~30-60 min)
-Find channel IDs (they start with `UC...`) via a channel's About page,
-or a tool like https://commentpicker.com/youtube-channel-id.php.
-Pick 2-4 channels you find interesting — could even be a couple from the
-Moonbug portfolio if they're public, or any channels you like.
+### API key
+
+1. In [Google Cloud Console](https://console.cloud.google.com), enable the **YouTube Data API v3** for your project
+2. Create an API key under **APIs & Services → Credentials**
+3. Copy `.env.example` to `.env` and add your key:
+
+```
+YOUTUBE_API_KEY=your_api_key_here
+```
+
+## Usage
+
+### Fetching data
+
+Add channel IDs to `channels.txt`, one per line, each tagged with a category:
+
+```
+UCxxxxxxxxxxxxxxxxxxxxxx,cartoon
+UCyyyyyyyyyyyyyyyyyyyyyy,live action
+UCzzzzzzzzzzzzzzzzzzzzzz,mixed
+```
+
+Then run:
 
 ```bash
-python fetch_data.py UCxxxxxxxxxxxxxxxxxxxxxx UCyyyyyyyyyyyyyyyyyyyyyy
+python fetch_data.py --file channels.txt
 ```
 
-This creates `youtube_data.db` with two tables: `channels` and `videos`.
-Watch it print progress as it fetches each channel.
+This creates/updates `youtube_data.db` with two tables: `channels` and `videos`. Re-running the same command later refreshes view counts on existing videos and adds any new ones.
 
-**Checkpoint for Saturday:** you should be able to open `youtube_data.db`
-(e.g. with the free "DB Browser for SQLite" app, or `sqlite3 youtube_data.db`
-in the terminal) and see real rows of video data with views, likes, duration.
+A single channel can also be fetched directly without a file:
 
-Try a query directly against it, just like you would in Metabase:
-```sql
-SELECT title, view_count, duration_seconds, is_short
-FROM videos
-ORDER BY view_count DESC
-LIMIT 10;
+```bash
+python fetch_data.py <channel_id>
 ```
 
----
+### Running the dashboard
 
-## Sunday: transform and visualize
-
-### 4. Explore and sanity-check the data (~30 min)
-Open a Python shell or notebook and poke around:
-```python
-import sqlite3, pandas as pd
-conn = sqlite3.connect("youtube_data.db")
-df = pd.read_sql("SELECT * FROM videos", conn)
-df.groupby("is_short")["view_count"].describe()
-```
-This is a good moment to decide if anything looks off (e.g. a channel with
-very few videos, or Shorts miscategorized) before building on top of it.
-
-### 5. Run the dashboard (~15 min to launch, then iterate)
 ```bash
 streamlit run dashboard.py
 ```
-This opens in your browser. It gives you four tabs:
-- **Upload activity** — uploads and total views by month
-- **Top content** — top videos by views and separately by engagement rate
-- **Engagement** — views vs. engagement scatter plot (with outlier
-  filtering, like your Metabase scatter queries), and average engagement
-  by channel
-- **Content length** — average views by duration bucket (Shorts are one
-  bucket among several here, not the headline)
 
-Plus a channel-level summary table at the bottom.
+Opens at `http://localhost:8501` with four tabs:
 
-### 6. Make it yours (~rest of Sunday)
-Pick 1-2 extensions that would make this feel like *your* analysis rather
-than a template — this is the part worth highlighting when you talk about
-it:
-- Add a "views per day since published" metric (normalizes for recency)
-- Break down performance by upload day-of-week or time-of-day
-- Compare how a channel's content mix (Shorts vs. long-form vs. mid-length)
-  has shifted over time
-- Write 3-4 sentences of commentary on what the data shows — the same
-  skill as your dashboard commentary at work, just on data you pulled
-  yourself
+- **Upload activity** — uploads and total views over time, split by Shorts vs. long-form, plus upload mix by channel
+- **Top content** — top 50 videos by views, with direct links to each
+- **Content length** — average views by duration bucket
+- **Channel summary** — subscriber counts, total views, and video counts per channel
 
-### 7. Wrap up
-- Push it to a public GitHub repo (this matters — it's the artifact you
-  actually show people)
-- Write a short README section of your own: what you built, what you'd
-  add with more time, one interesting finding from the data
-- Optional: deploy the dashboard for free on Streamlit Community Cloud
-  (streamlit.io/cloud) so you have a live link, not just code
+The sidebar supports filtering by category and searching/selecting individual channels, designed to scale to 100+ channels.
 
----
+## Project structure
 
-## Why this project specifically
+```
+.
+├── fetch_data.py          # pulls data from the YouTube API into SQLite
+├── dashboard.py            # Streamlit dashboard
+├── channels.txt             # channel IDs + categories to fetch (not tracked if private)
+├── channels.example.txt   # example format
+├── requirements.txt
+├── .env.example
+└── youtube_data.db         # SQLite database (generated)
+```
 
-- It proves you can build the pipeline, not just query one someone else
-  built — that's the actual gap between "analyst" and "data engineer"
-- It's grounded in something you already understand deeply (YouTube/Shorts
-  data), so you can talk about it fluently
-- It touches API integration, a relational database, data transformation,
-  and a front end — a legitimate cross-section of a data engineering role
+## Notes and limitations
+
+- **Lifetime view counts, not time-windowed.** The YouTube Data API only returns cumulative views, likes, and comments — not performance over a specific period. A video's stats reflect its entire time live, not just the last 90 days.
+- **No watch time or audience retention data.** These metrics live in the YouTube Analytics API, which requires OAuth as the channel owner — not available for arbitrary public channels.
+- **Some videos may be geo-restricted or region-locked**, meaning the data may reference a video that isn't viewable from your location.
+- **Comments are frequently disabled on kids' content** (COPPA compliance), which naturally suppresses comment counts for that category.
