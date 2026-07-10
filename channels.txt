@@ -1,0 +1,84 @@
+# One YouTube channel ID per line. Lines starting with # are ignored.
+
+#cartoon
+
+UCVzLLZkDuFGAE2BGdBuBNBg,cartoon
+UCNcdbMyA59zE-Vk668bKWOg,cartoon
+UCUe6ZpY6TJ0no8jI4l2iLxw,cartoon
+UCPlwvN0w4qFSP1FllALB92w,cartoon
+UC_qs3c0ehDvZkbiEbOj6Drg,cartoon
+UCrNnk0wFBnCS1awGjq_ijGQ,cartoon
+UCGydrkfIhUDNCotYQI8TJhA,cartoon
+UCmst562fALOY2cKb4IFgqEg,cartoon
+UCAOtE1V7Ots4DjM8JLlrYgg,cartoon
+UCSVSJ1OCSv5ClFgKFTHIDew,cartoon
+UC9trsD1jCTXXtN3xIOIU8gg,cartoon
+UCw7SNYrYei7F5ttQO3o-rpA,cartoon
+UCxwitsUVNzwS5XBSC5UQV8Q,cartoon
+UCDe7m0POuwkL1gwnQ-FVhMw,cartoon
+UCB1NBqgditIHwk1c8sGky2A,cartoon
+UCqu9w7Mw14mAUQMzcyV3D4A,cartoon
+UCrFslqncMIdjD2WfB6pAcEg,cartoon
+UC0qrcKuayvbMtPj-WXNFylA,cartoon
+UCx27Pkk8plpiosF14qXq-VA,cartoon
+UC74bcC7aGRNz4KoRpJsJNEw,cartoon
+UClPzMXh4d5baHqR_tSeiagw,cartoon
+UCTsgmnXbWotzbR36vU0YPrA,cartoon
+UCRsLjb3a72hAyUPpH29a_MQ,cartoon
+UCqrVPwN_DhavUC386xH9SDw,cartoon
+UCO0vPDAqN7BTK9kNAeP3sKw,cartoon
+UCstwnmjrH6CX63UNqo0Mh5A,cartoon
+UCdknlZNiH-2VWrvjXkx9dJA,cartoon
+UCMsQNXla0kQU5337ipRj1eQ,cartoon
+UCR41wiSu8b8ThBjs6PZ-pRQ,cartoon
+UC34mvxbzl-tk5AXpFaQksWg,cartoon
+UC5j3kTwakmHPrMjfKvSkPbg,cartoon
+UCS7H8U-n5mINVJjJsaRtGHg,cartoon
+UCoWgc1mqe-bcfb_lem7EyOg,cartoon
+UC5yaRAqKKYYApdr326HQnsg,cartoon
+UCoBpC9J2EcbAMprw7YjC93A,cartoon
+UCFuU-5B1eKAWaTeLUu3JuyA,cartoon
+UCGydrkfIhUDNCotYQI8TJhA,cartoon
+UCpYye8D5fFMUPf9nSfgd4bA,cartoon
+UCXIvAXVdbUDzIFhVwB9RR-g,cartoon
+UCaDX8Eff3rzIBjycTGECLUQ,cartoon
+UCsCy3274qvLzrbq9vGYLCpg,cartoon
+UC_XI1NynEbw0ABhURyRtjPw,cartoon
+UC4NALVCmcmL5ntpV0thoH6w,cartoon
+UCLsooMJoIpl_7ux2jvdPB-Q,cartoon
+UCxG6Tbopv4XcHfem65bgFeg,cartoon
+UCNR06PEAvBj_siYZCBtk1hw,cartoon
+UCUamVL0L_lgG720vqmdZqoA,cartoon
+UCRgRxaGa8Qty3V19soBX2GA,cartoon
+UC6SyiVWGViNSKF5-UOAuQ5w,cartoon
+UCDXxLSGBRKS2l9y51YTWQ7g,cartoon
+UCp5Nhw2YMCMUemXC1oWTkkA,cartoon
+UC54BNgZlPoWZg-Jg66Dt9SA,cartoon
+UCu59yAFE8fM0sVNTipR4edw,cartoon
+UC5DgNCIsFvMoY5dJC3ZQK1A,cartoon
+UCSPzXeCRf12qayHCAtuffzw,cartoon
+
+#live action
+
+UCTn45orVsFOsNZHxAJcZK5g,live action
+UC5M_h2S8Ldoc9M6f7B-_m6A,live action
+UCG2CL6EUjG8TVT1Tpl9nJdg,live action
+UCgFXm4TI8htWmCyJ6cVPG_A,live action
+UCk8GzjMOrta8yxDcKfylJYw,live action
+UCvlE5gTbOvjiolFlEm-c_Ow,live action
+UCJplp5SjeGSdVdwsfb9Q7lQ,live action
+UCoookXUzPciGrEZEXmh4Jjg,live action
+UCuEgW3r4ytXwd9UfQySv_Nw,live action
+UC7DM7591Xkt1M2D3fs_wAlg,live action
+UCx790OVgpTC1UVBQIqu3gnQ,live action
+
+#mixed
+
+UC0fXNmjDoC7ckPyT6qM8Urw,mixed
+UCY26xU0-avwTJ6F6TzUZVEw,mixed
+UCHiceVclOIFCgAcveITRLLw,mixed
+UCcdwLMPsaU2ezNSJU1nFoBQ,mixed
+UCi3onjs7UU2Z64i3RrVci-Q,mixed
+UCK5Q72Uyo73uRPk8PmM2A3w,mixed
+UCJkWoS4RsldA1coEIot5yDA,mixed
+UCuKgGov3NifIuVhS3U3ZDbw,mixed
