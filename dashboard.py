@@ -109,22 +109,22 @@ with st.sidebar:
     channels["category"] = channels["category"].fillna("Uncategorized").str.title()
     categories = sorted(channels["category"].unique())
 
-    st.write("**Filter by category**")
-    cat_col_a, cat_col_b = st.columns(2)
-    if cat_col_a.button("Select all categories", use_container_width=True):
-        st.session_state.category_multiselect = categories
-    if cat_col_b.button("Clear categories", use_container_width=True):
-        st.session_state.category_multiselect = []
+    st.session_state.setdefault("category_multiselect", [])
+    st.session_state.category_multiselect = [
+        c for c in st.session_state.category_multiselect if c in categories
+    ]
 
-    if "category_multiselect" in st.session_state:
-        st.session_state.category_multiselect = [
-            c for c in st.session_state.category_multiselect if c in categories
-        ]
+    st.write("**Filter by category**")
+    st.caption("Leave empty to show all categories")
+    cat_col_a, cat_col_b = st.columns(2)
+    if cat_col_a.button("Select all categories", width="stretch"):
+        st.session_state.category_multiselect = categories
+    if cat_col_b.button("Clear categories", width="stretch"):
+        st.session_state.category_multiselect = []
 
     category_filter = st.multiselect(
         "Filter by category",
         categories,
-        default=[],
         key="category_multiselect",
         label_visibility="collapsed",
     )
@@ -141,21 +141,20 @@ with st.sidebar:
     st.write("**Search channels**")
     channel_names = category_matched.sort_values("title")["title"].tolist()
 
-    chan_col_a, chan_col_b = st.columns(2)
-    if chan_col_a.button("Select all channels", use_container_width=True):
-        st.session_state.channel_multiselect = channel_names
-    if chan_col_b.button("Clear channels", use_container_width=True):
-        st.session_state.channel_multiselect = []
+    st.session_state.setdefault("channel_multiselect", [])
+    st.session_state.channel_multiselect = [
+        c for c in st.session_state.channel_multiselect if c in channel_names
+    ]
 
-    if "channel_multiselect" in st.session_state:
-        st.session_state.channel_multiselect = [
-            c for c in st.session_state.channel_multiselect if c in channel_names
-        ]
+    chan_col_a, chan_col_b = st.columns(2)
+    if chan_col_a.button("Select all channels", width="stretch"):
+        st.session_state.channel_multiselect = channel_names
+    if chan_col_b.button("Clear channels", width="stretch"):
+        st.session_state.channel_multiselect = []
 
     selected = st.multiselect(
         "Search channels",
         channel_names,
-        default=[],
         key="channel_multiselect",
         label_visibility="collapsed",
         placeholder="Type to search channels...",
@@ -170,10 +169,11 @@ filtered = videos.merge(
     channels[["channel_id", "title"]].rename(columns={"title": "channel_title"}),
     on="channel_id",
 )
-# An empty channel selection means "no restriction" (show everything),
-# same as the category filter -- selecting specific channels narrows things.
-if selected:
-    filtered = filtered[filtered["channel_title"].isin(selected)]
+# If specific channels are picked, use exactly those. Otherwise fall back to
+# whatever the category filter already narrowed things down to (which is
+# itself "everything" if no category is selected either).
+effective_channels = selected if selected else channel_names
+filtered = filtered[filtered["channel_title"].isin(effective_channels)]
 
 # --- Top-line metrics ---
 col1, col2, col3 = st.columns(3)
@@ -213,7 +213,7 @@ with tab1:
             tooltip=["publish_month", "content_type", "videos"],
         )
     )
-    st.altair_chart(upload_chart, use_container_width=True)
+    st.altair_chart(upload_chart, width="stretch")
 
     st.subheader("Total views over time")
     filter_view_outliers = st.checkbox(
@@ -239,7 +239,7 @@ with tab1:
             tooltip=["publish_month", "view_count"],
         )
     )
-    st.altair_chart(views_chart, use_container_width=True)
+    st.altair_chart(views_chart, width="stretch")
 
     st.subheader("Upload mix by channel")
     mix_by_channel = (
@@ -299,7 +299,7 @@ with tab3:
             tooltip=["duration_bucket", "videos", "avg_views"],
         )
     )
-    st.altair_chart(length_chart, use_container_width=True)
+    st.altair_chart(length_chart, width="stretch")
 
     bucket_summary_sorted = bucket_summary.sort_values("avg_views", ascending=False)
     st.dataframe(

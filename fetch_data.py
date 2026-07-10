@@ -189,10 +189,13 @@ def is_actual_short(session: requests.Session, video_id: str, duration_seconds: 
 
     This checks YouTube's own behavior instead: youtube.com/shorts/{id}
     resolves normally (200) if YouTube treats the video as a Short, and
-    redirects away (e.g. 303) if it doesn't. This is an unofficial, undocumented
+    redirects away (3xx) if it doesn't. This is an unofficial, undocumented
     behavior (not a public API) -- it could change or break without notice,
-    so any failure falls back to the duration-only heuristic rather than
-    crashing the fetch.
+    and running many of these checks in parallel risks rate limiting, so
+    anything other than a clean 200/3xx response falls back to the
+    duration-only heuristic rather than being confidently treated as "not
+    a Short" (which would silently undercount Shorts if requests start
+    failing partway through a large fetch).
     """
     if duration_seconds > MAX_SHORT_DURATION:
         return False  # can't possibly be a Short; skip the network call entirely
@@ -203,9 +206,15 @@ def is_actual_short(session: requests.Session, video_id: str, duration_seconds: 
             allow_redirects=False,
             timeout=5,
         )
-        return resp.status_code == 200
+        if resp.status_code == 200:
+            return True
+        if 300 <= resp.status_code < 400:
+            return False  # a real redirect -- YouTube confirms this isn't a Short
+        # Anything else (rate limiting, blocks, unexpected errors) is
+        # ambiguous, not a confident "no" -- fall back to duration.
+        return duration_seconds <= 60
     except requests.RequestException:
-        # Unofficial check failed (network issue, rate limiting, etc.) --
+        # Unofficial check failed (network issue, timeout, etc.) --
         # fall back to the old duration-only heuristic rather than failing.
         return duration_seconds <= 60
 
@@ -247,7 +256,7 @@ def fetch_video_details(youtube, video_ids: list) -> list:
     if candidates:
         print(f"  Checking Shorts status for {len(candidates)} video(s) (parallel)...")
         session = requests.Session()
-        with ThreadPoolExecutor(max_workers=15) as executor:
+        with ThreadPoolExecutor(max_workers=8) as executor:
             futures = {
                 executor.submit(is_actual_short, session, video_id, duration): video_id
                 for video_id, duration in candidates
