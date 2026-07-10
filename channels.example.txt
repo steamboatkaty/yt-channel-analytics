@@ -1,9 +1,0 @@
-# One YouTube channel ID per line. Lines starting with # are ignored.
-# Find a channel ID via the channel's About page, or:
-# https://commentpicker.com/youtube-channel-id.php
-
-UCVzLLZkDuFGAE2BGdBuBNBg
-UCNcdbMyA59zE-Vk668bKWOg
-UCUe6ZpY6TJ0no8jI4l2iLxw
-
-# Add more below as you find them:
