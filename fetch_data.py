@@ -99,11 +99,33 @@ def init_db(conn):
             comment_count INTEGER,
             fetched_at TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS video_themes (
+            video_id TEXT,
+            method TEXT,
+            theme_label TEXT,
+            confidence REAL,
+            assigned_at TEXT,
+            PRIMARY KEY (video_id, method),
+            FOREIGN KEY (video_id) REFERENCES videos(video_id)
+        );
+        
         """
     )
     # Migration: if the DB was created before "category" existed, add it now
     try:
         conn.execute("ALTER TABLE channels ADD COLUMN category TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    conn.commit()
+
+    # Migration: add description/tags columns for theme extraction
+    try:
+        conn.execute("ALTER TABLE videos ADD COLUMN description TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    try:
+        conn.execute("ALTER TABLE videos ADD COLUMN tags TEXT")
     except sqlite3.OperationalError:
         pass  # column already exists
     conn.commit()
@@ -276,6 +298,8 @@ def fetch_video_details(youtube, video_ids: list) -> list:
                 "video_id": item["id"],
                 "channel_id": item["snippet"]["channelId"],
                 "title": item["snippet"]["title"],
+                "description": item["snippet"].get("description", ""),
+                "tags": ",".join(item["snippet"].get("tags", [])),
                 "published_at": item["snippet"]["publishedAt"],
                 "duration_seconds": duration_seconds,
                 "is_short": 1 if is_short else 0,
@@ -340,13 +364,15 @@ def main():
         for v in videos:
             conn.execute(
                 """INSERT OR REPLACE INTO videos
-                   (video_id, channel_id, title, published_at, duration_seconds,
+                   (video_id, channel_id, title, description, tags, published_at, duration_seconds,
                     is_short, view_count, like_count, comment_count, fetched_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     v["video_id"],
                     v["channel_id"],
                     v["title"],
+                    v["description"],
+                    v["tags"],
                     v["published_at"],
                     v["duration_seconds"],
                     v["is_short"],
