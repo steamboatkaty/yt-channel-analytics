@@ -130,6 +130,26 @@ def init_db(conn):
         pass  # column already exists
     conn.commit()
 
+    # Migration: liveStreamingDetails fields (only populated for
+    # videos that are/were a live broadcast; NULL for everything else)
+    try:
+        conn.execute("ALTER TABLE videos ADD COLUMN actual_start_time TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    try:
+        conn.execute("ALTER TABLE videos ADD COLUMN actual_end_time TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    try:
+        conn.execute("ALTER TABLE videos ADD COLUMN scheduled_start_time TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    try:
+        conn.execute("ALTER TABLE videos ADD COLUMN concurrent_viewers INTEGER")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    conn.commit()
+
 
 def parse_iso8601_duration(duration: str) -> int:
     """Convert YouTube's ISO 8601 duration (e.g. 'PT1M30S') to seconds."""
@@ -255,7 +275,7 @@ def fetch_video_details(youtube, video_ids: list) -> list:
     for i in range(0, len(video_ids), 50):
         batch = video_ids[i : i + 50]
         resp = youtube.videos().list(
-            part="snippet,statistics,contentDetails", id=",".join(batch)
+            part="snippet,statistics,contentDetails,liveStreamingDetails", id=",".join(batch)
         ).execute()
 
         for item in resp["items"]:
@@ -293,6 +313,13 @@ def fetch_video_details(youtube, video_ids: list) -> list:
     videos = []
     for item, duration_seconds in raw_items:
         is_short = is_short_by_id.get(item["id"], False)
+        # liveStreamingDetails only appears on videos that are/were a
+        # broadcast. concurrentViewers specifically only exists WHILE the
+        # stream is live -- it's gone from the response the moment the
+        # broadcast ends, so this will be NULL for the vast majority of
+        # rows unless a fetch happens to land mid-stream.
+        live = item.get("liveStreamingDetails", {})
+        concurrent_viewers = live.get("concurrentViewers")
         videos.append(
             {
                 "video_id": item["id"],
@@ -306,6 +333,10 @@ def fetch_video_details(youtube, video_ids: list) -> list:
                 "view_count": int(item["statistics"].get("viewCount", 0)),
                 "like_count": int(item["statistics"].get("likeCount", 0)),
                 "comment_count": int(item["statistics"].get("commentCount", 0)),
+                "actual_start_time": live.get("actualStartTime"),
+                "actual_end_time": live.get("actualEndTime"),
+                "scheduled_start_time": live.get("scheduledStartTime"),
+                "concurrent_viewers": int(concurrent_viewers) if concurrent_viewers is not None else None,
             }
         )
 
@@ -365,8 +396,9 @@ def main():
             conn.execute(
                 """INSERT OR REPLACE INTO videos
                    (video_id, channel_id, title, description, tags, published_at, duration_seconds,
-                    is_short, view_count, like_count, comment_count, fetched_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    is_short, view_count, like_count, comment_count, actual_start_time,
+                    actual_end_time, scheduled_start_time, concurrent_viewers, fetched_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     v["video_id"],
                     v["channel_id"],
@@ -379,6 +411,10 @@ def main():
                     v["view_count"],
                     v["like_count"],
                     v["comment_count"],
+                    v["actual_start_time"],
+                    v["actual_end_time"],
+                    v["scheduled_start_time"],
+                    v["concurrent_viewers"],
                     now,
                 ),
             )

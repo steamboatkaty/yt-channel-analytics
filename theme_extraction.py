@@ -41,7 +41,7 @@ THEME_VOCABULARY = [
     "bedtime stories", "story time", "fairy tale", "read aloud", "puppet show",
     # Activities
     "pretend play", "cooking and baking", "arts and crafts",
-    "science experiment", "magic tricks", "building and construction",
+    "science experiment", "magic tricks", "building and construction", "dancing",
     # Adventure / action
     "cops and robbers", "superhero action", "rescue mission", "mystery adventure",
     "space adventure", "treasure hunt", "obstacle course", "racing",
@@ -254,6 +254,39 @@ def categorize_with_llm(model, title: str, description: str, tags: str, max_retr
    beginning of the title more heavily than the end when the two conflict
    -- the brand name at the end is often just channel branding, not the
    video's actual subject.
+   7. If the video's core activity is a craft/creative task -- drawing, painting,
+   decorating, building, baking -- use that activity's theme ("arts and crafts",
+   "cooking and baking", "building and construction") even if a superhero,
+   franchise character, or dramatic-sounding title is involved.
+   - "Marinette draws a portrait of Adrien's dad" -> "arts and crafts"
+     (drawing is the actual activity; ignore "Marinette"/Miraculous Ladybug
+     branding and any implied drama in the title)
+   - "Winnie the Pooh Cartoon Comes to Life" -> if the video is actually
+     about a craft/drawing process, use "arts and crafts"; if it's really
+     just a story/episode, use a story-format theme instead
+   8. Judge the theme from the video's actual content and description, not
+   just the most dramatic-sounding words in the title ("Relationship is
+   Over?!", "Epic Battle", "Sneaky Surrender"). Titles are often written
+   to sound more dramatic or urgent than the video's real content.
+   9. Look for concrete activity/subject words in the title even when they're
+   not the first word -- food/cooking words (treats, yummy, baking, cooking,
+   recipe), dance/music words (dance, dancing, song), etc. should point
+   directly to their matching theme, not a vaguer emotional/social theme.
+   - "Yummy Treats | Sharing and Caring Moments" -> "cooking and baking"
+     (the food content is the real subject; "sharing and caring" in the
+     title is just a tagline, not the actual theme)
+   - "Angelina Dance By The River | Full Episode" -> "dancing"
+     (the word "Dance" directly names the activity -- don't default to a
+     generic social/emotional theme when a specific activity is named)
+     10. "problem solving" and "sharing and kindness" are OFTEN OVERUSED as
+   default/safe choices -- only use them if the video is genuinely about
+   a character working through a conflict or emotional lesson, not as a
+   fallback when you're unsure. If the title contains ANY concrete,
+   nameable subject (a food, an activity, an animal, a color/craft task,
+   a sport, a vehicle), that concrete theme always wins over these two
+   vaguer options.
+   - "Cake and Colors Competition" -> "cooking and baking" (cake is a
+     concrete, nameable subject; don't default to "problem solving")
 
     Respond with a JSON object in this exact format:
     {{"theme_label": "exact theme from the list above", "confidence": 0.0 to 1.0}}

@@ -14,8 +14,27 @@ import sqlite3
 import altair as alt
 import pandas as pd
 import streamlit as st
+import os
 
 DB_PATH = "youtube_data.db"
+
+DRIVE_FILE_ID = "1b49mjX35FMz-G4SHQXd7ew3Yb3sWbev6"
+
+
+def ensure_db_exists():
+    """
+    Locally, youtube_data.db already exists on disk. On Streamlit Cloud,
+    it's not in the git repo (gitignored for local dev, and too large/
+    dynamic to want in version control) -- so on a fresh deploy it won't
+    exist yet. Download it from Google Drive once, only if it's missing.
+    """
+    if not os.path.exists(DB_PATH):
+        import gdown
+        with st.spinner("Downloading database (first run only)..."):
+            gdown.download(id=DRIVE_FILE_ID, output=DB_PATH, quiet=False)
+
+
+ensure_db_exists()
 
 st.set_page_config(page_title="YouTube Kids Channel Analytics", page_icon="🎬", layout="wide")
 
@@ -94,13 +113,26 @@ def load_data():
     conn.close()
 
     videos["published_at"] = pd.to_datetime(videos["published_at"])
-    is_livestream = videos["title"].str.contains(
+    videos["actual_start_time"] = pd.to_datetime(videos["actual_start_time"], errors="coerce")
+    videos["actual_end_time"] = pd.to_datetime(videos["actual_end_time"], errors="coerce")
+
+    # A video counts as a Livestream if YouTube's own liveStreamingDetails
+    # says so (it has an actual start time) -- this is ground truth, unlike
+    # the title regex, which stays only as a fallback for older rows fetched
+    # before this field was collected.
+    is_livestream = videos["actual_start_time"].notna() | videos["title"].str.contains(
         r"🔴|\blive\b", regex=True, na=False, case=False
     )
     videos["content_type"] = videos["is_short"].map({1: "Short", 0: "Long-form"})
     videos.loc[is_livestream, "content_type"] = "Livestream"
     videos["publish_month"] = videos["published_at"].dt.to_period("M").astype(str)
     videos["publish_week"] = videos["published_at"].dt.to_period("W").dt.start_time
+
+    # Real stream duration where YouTube gave us both endpoints; NaN
+    # everywhere else (Shorts, long-form, or streams still missing data).
+    videos["stream_duration_seconds"] = (
+            videos["actual_end_time"] - videos["actual_start_time"]
+    ).dt.total_seconds()
 
     return channels, videos, themes
 
@@ -192,8 +224,8 @@ col1.metric("Total videos", f"{len(filtered):,}")
 col2.metric("Total views", f"{filtered['view_count'].sum():,}")
 col3.metric("Avg. views/video", f"{filtered['view_count'].mean():,.0f}" if len(filtered) else "0")
 
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["Upload activity", "Top content", "Content length", "Channels Overview"]
+tab1, tab2, tab3, tab6, tab4 = st.tabs(
+    ["Upload activity", "Top content", "Content length", "Livestreams", "Channels Overview"]
 )
 
 with tab1:
@@ -205,6 +237,17 @@ with tab1:
     col_s.metric("Shorts uploaded", f"{total_shorts:,}")
     col_l.metric("Long-form uploaded", f"{total_longform:,}")
     col_ls.metric("Livestreams uploaded", f"{total_livestream:,}")
+
+    livestream_durations = filtered.loc[
+        filtered["content_type"] == "Livestream", "stream_duration_seconds"
+    ].dropna()
+    if not livestream_durations.empty:
+        avg_minutes = livestream_durations.mean() / 60
+        st.caption(
+            f"Avg. livestream duration (from YouTube's actual start/end times, "
+            f"available for {len(livestream_durations):,} of {total_livestream:,} "
+            f"livestream(s)): **{avg_minutes:,.0f} min**"
+        )
 
     st.subheader("Uploads over time, by type")
     monthly_by_type = (
@@ -299,6 +342,7 @@ with tab1:
         .reset_index(name="videos")
         .pivot(index="channel_title", columns="content_type", values="videos")
         .fillna(0)
+        .reindex(columns=["Long-form", "Short", "Livestream"], fill_value=0)
         .reset_index()
         .sort_values("Long-form", ascending=False)
     )
@@ -365,6 +409,124 @@ with tab3:
         },
         hide_index=True,
     )
+
+with tab6:
+    st.subheader("Livestreams")
+
+    livestream_videos = filtered[filtered["content_type"] == "Livestream"].copy()
+
+    if livestream_videos.empty:
+        st.info("No livestreams in the current filter selection.")
+    else:
+        total_streams = len(livestream_videos)
+        avg_views = livestream_videos["view_count"].mean()
+        total_views_all = livestream_videos["view_count"].sum()
+        durations = livestream_videos["stream_duration_seconds"].dropna()
+
+        col_ls1, col_ls2, col_ls3, col_ls4 = st.columns(4)
+        col_ls1.metric("Total livestreams", f"{total_streams:,}")
+        col_ls2.metric("Avg. views", f"{avg_views:,.0f}")
+        col_ls4.metric("Total views", f"{total_views_all:,}")
+        if not durations.empty:
+            col_ls3.metric(
+                "Avg. duration",
+                f"{durations.mean() / 60:,.0f} min",
+                help=f"Based on {len(durations):,} of {total_streams:,} livestreams with a recorded end time.",
+            )
+        else:
+            col_ls3.metric(
+                "Avg. duration", "N/A",
+                help="No livestreams in this selection have a recorded end time yet.",
+            )
+        channel_ls_summary = (
+            livestream_videos.groupby("channel_title")
+            .agg(
+                livestreams=("video_id", "count"),
+                avg_views=("view_count", "mean"),
+                total_views=("view_count", "sum"),
+                avg_duration_seconds=("stream_duration_seconds", "mean"),
+                avg_concurrent_viewers=("concurrent_viewers", "mean"),
+            )
+            .reset_index()
+            .sort_values("total_views", ascending=False)
+        )
+
+        st.subheader("Total views by channel (top 20)")
+        top_total_views_df = channel_ls_summary.head(20)  # already sorted by total_views
+        total_views_chart = (
+            alt.Chart(top_total_views_df)
+            .mark_bar(color="#2EC4B6")
+            .encode(
+                x=alt.X("total_views:Q", title="Total views"),
+                y=alt.Y("channel_title:N", title="Channel", sort="-x"),
+                tooltip=["channel_title", "livestreams", "total_views", "avg_views"],
+            )
+        )
+        st.altair_chart(total_views_chart, width="stretch")
+
+        st.subheader("Livestream count by channel (top 20)")
+        top_count_df = channel_ls_summary.sort_values("livestreams", ascending=False).head(20)
+        count_chart = (
+            alt.Chart(top_count_df)
+            .mark_bar(color="#6A4C93")
+            .encode(
+                x=alt.X("livestreams:Q", title="Livestreams"),
+                y=alt.Y("channel_title:N", title="Channel", sort="-x"),
+                tooltip=["channel_title", "livestreams", "total_views", "avg_views"],
+            )
+        )
+        st.altair_chart(count_chart, width="stretch")
+
+        st.subheader("Avg. duration by channel (top 20)")
+        duration_df = channel_ls_summary.dropna(subset=["avg_duration_seconds"]).copy()
+        duration_df["avg_duration_minutes"] = duration_df["avg_duration_seconds"] / 60
+        duration_df = duration_df.sort_values("avg_duration_minutes", ascending=False).head(20)
+
+        if duration_df.empty:
+            st.info("No channels with a recorded livestream duration yet.")
+        else:
+            duration_chart = (
+                alt.Chart(duration_df)
+                .mark_bar(color="#FF6B6B")
+                .encode(
+                    x=alt.X("avg_duration_minutes:Q", title="Avg. duration (min)"),
+                    y=alt.Y("channel_title:N", title="Channel", sort="-x"),
+                    tooltip=["channel_title", "livestreams", "avg_duration_minutes"],
+                )
+            )
+            st.altair_chart(duration_chart, width="stretch")
+
+        st.subheader("Avg. views by channel (top 20)")
+
+        top_views_chart_df = channel_ls_summary.sort_values("avg_views", ascending=False).head(20)
+        views_chart = (
+            alt.Chart(top_views_chart_df)
+            .mark_bar(color="#FFC145")
+            .encode(
+                x=alt.X("avg_views:Q", title="Avg. views"),
+                y=alt.Y("channel_title:N", title="Channel", sort="-x"),
+                tooltip=["channel_title", "livestreams", "avg_views", "total_views"],
+            )
+        )
+        st.altair_chart(views_chart, width="stretch")
+
+        st.subheader("Duration vs. views")
+        scatter_df = livestream_videos.dropna(subset=["stream_duration_seconds"]).copy()
+        scatter_df["duration_minutes"] = scatter_df["stream_duration_seconds"] / 60
+
+        if scatter_df.empty:
+            st.info("No livestreams with a recorded duration yet -- nothing to plot here.")
+        else:
+            scatter_chart = (
+                alt.Chart(scatter_df)
+                .mark_circle(color="#FFC145", opacity=0.6, size=60)
+                .encode(
+                    x=alt.X("duration_minutes:Q", title="Duration (min)"),
+                    y=alt.Y("view_count:Q", title="Views", scale=alt.Scale(type="symlog")),
+                    tooltip=["title", "channel_title", "duration_minutes", "view_count"],
+                )
+            )
+            st.altair_chart(scatter_chart, width="stretch")
 
 with tab4:
     st.subheader("Channels Overview")
