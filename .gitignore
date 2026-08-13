@@ -13,3 +13,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+youtube_data.db
+llm_run.log
+*.log

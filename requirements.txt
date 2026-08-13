@@ -6,3 +6,5 @@ requests==2.*
 altair==5.*
 numpy==2.1.*
 pyarrow==17.*
+scikit-learn==1.*
+google-generativeai==0.*

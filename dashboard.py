@@ -90,16 +90,27 @@ def load_data():
     conn = sqlite3.connect(DB_PATH)
     channels = pd.read_sql("SELECT * FROM channels", conn)
     videos = pd.read_sql("SELECT * FROM videos", conn)
+    themes = pd.read_sql("SELECT * FROM video_themes", conn)
     conn.close()
 
     videos["published_at"] = pd.to_datetime(videos["published_at"])
+    is_livestream = videos["title"].str.contains(
+        r"🔴|\blive\b", regex=True, na=False, case=False
+    )
     videos["content_type"] = videos["is_short"].map({1: "Short", 0: "Long-form"})
+    videos.loc[is_livestream, "content_type"] = "Livestream"
     videos["publish_month"] = videos["published_at"].dt.to_period("M").astype(str)
+    videos["publish_week"] = videos["published_at"].dt.to_period("W").dt.start_time
 
-    return channels, videos
+    return channels, videos, themes
 
 
-channels, videos = load_data()
+channels, videos, themes = load_data()
+
+def get_theme_data(filtered_videos: pd.DataFrame, themes: pd.DataFrame, method: str) -> pd.DataFrame:
+    """Join filtered videos with their theme label for a specific method."""
+    method_themes = themes[themes["method"] == method]
+    return filtered_videos.merge(method_themes[["video_id", "theme_label"]], on="video_id", how="inner")
 
 # --- Sidebar: channel picker, built to scale to 100+ channels ---
 with st.sidebar:
@@ -182,16 +193,18 @@ col2.metric("Total views", f"{filtered['view_count'].sum():,}")
 col3.metric("Avg. views/video", f"{filtered['view_count'].mean():,.0f}" if len(filtered) else "0")
 
 tab1, tab2, tab3, tab4 = st.tabs(
-    ["Upload activity", "Top content", "Content length", "Channel summary"]
+    ["Upload activity", "Top content", "Content length", "Channels Overview"]
 )
 
 with tab1:
     st.subheader("Uploads by content type")
     total_shorts = int((filtered["content_type"] == "Short").sum())
     total_longform = int((filtered["content_type"] == "Long-form").sum())
-    col_s, col_l = st.columns(2)
+    total_livestream = int((filtered["content_type"] == "Livestream").sum())
+    col_s, col_l, col_ls = st.columns(3)
     col_s.metric("Shorts uploaded", f"{total_shorts:,}")
     col_l.metric("Long-form uploaded", f"{total_longform:,}")
+    col_ls.metric("Livestreams uploaded", f"{total_livestream:,}")
 
     st.subheader("Uploads over time, by type")
     monthly_by_type = (
@@ -208,12 +221,40 @@ with tab1:
             color=alt.Color(
                 "content_type:N",
                 title="Content type",
-                scale=alt.Scale(domain=["Short", "Long-form"], range=["#FF6B6B", "#2EC4B6"]),
+                scale=alt.Scale(
+                    domain=["Short", "Long-form", "Livestream"],
+                    range=["#FF6B6B", "#2EC4B6", "#FFC145"],
+                ),
             ),
             tooltip=["publish_month", "content_type", "videos"],
         )
     )
     st.altair_chart(upload_chart, width="stretch")
+
+    st.subheader("Total views over time, by type")
+    views_by_type = (
+        filtered.groupby(["publish_month", "content_type"])["view_count"]
+        .sum()
+        .reset_index()
+    )
+    views_by_type_chart = (
+        alt.Chart(views_by_type)
+        .mark_bar()
+        .encode(
+            x=alt.X("publish_month:N", title="Month"),
+            y=alt.Y("view_count:Q", title="Total views"),
+            color=alt.Color(
+                "content_type:N",
+                title="Content type",
+                scale=alt.Scale(
+                    domain=["Short", "Long-form", "Livestream"],
+                    range=["#FF6B6B", "#2EC4B6", "#FFC145"],
+                )
+            ),
+            tooltip=["publish_month", "content_type", "view_count"],
+        )
+    )
+    st.altair_chart(views_by_type_chart, width="stretch")
 
     st.subheader("Total views over time")
     filter_view_outliers = st.checkbox(
@@ -224,22 +265,32 @@ with tab1:
     if filter_view_outliers and len(views_df) > 0:
         cutoff = views_df["view_count"].quantile(0.99)
         views_df = views_df[views_df["view_count"] <= cutoff]
+
     monthly_views = (
-        views_df.groupby("publish_month")["view_count"]
+        views_df.groupby("publish_week")["view_count"]
         .sum()
         .reset_index()
-        .sort_values("publish_month")
+        .sort_values("publish_week")
     )
+    # Drop the most recent week -- it's always incomplete/artificially low
+    # since videos published a few days ago haven't had time to accumulate
+    # views yet, and the week itself may not even be over.
+    if len(monthly_views) > 1:
+        monthly_views = monthly_views.iloc[:-1]
+
+    y_max = monthly_views["view_count"].max() * 1.25
     views_chart = (
         alt.Chart(monthly_views)
-        .mark_bar(color="#6A4C93")
+        .mark_line(color="#6A4C93", point=True)
         .encode(
-            x=alt.X("publish_month:N", title="Month"),
-            y=alt.Y("view_count:Q", title="Total views"),
-            tooltip=["publish_month", "view_count"],
+            x=alt.X("publish_week:T", title="Week", axis=alt.Axis(format="%d %b")),
+            y=alt.Y("view_count:Q", title="Total views", scale=alt.Scale(domain=[0, y_max])),
+            tooltip=["publish_week", "view_count"],
         )
     )
     st.altair_chart(views_chart, width="stretch")
+
+
 
     st.subheader("Upload mix by channel")
     mix_by_channel = (
@@ -249,13 +300,15 @@ with tab1:
         .pivot(index="channel_title", columns="content_type", values="videos")
         .fillna(0)
         .reset_index()
+        .sort_values("Long-form", ascending=False)
     )
     st.dataframe(
-        mix_by_channel,
+        mix_by_channel[["channel_title", "Long-form", "Short", "Livestream"]],
         column_config={
-            "channel_title": st.column_config.TextColumn("Channel", width="large"),
-            "Short": st.column_config.NumberColumn(width="small", format="%,d"),
+            "channel_title": st.column_config.TextColumn("Channel", width="medium"),
             "Long-form": st.column_config.NumberColumn(width="small", format="%,d"),
+            "Short": st.column_config.NumberColumn(width="small", format="%,d"),
+            "Livestream": st.column_config.NumberColumn(width="small", format="%,d"),
         },
         hide_index=True,
     )
@@ -265,14 +318,15 @@ with tab2:
     top = filtered.sort_values("view_count", ascending=False).head(50).copy()
     top["url"] = "https://www.youtube.com/watch?v=" + top["video_id"]
     st.dataframe(
-        top[["title", "channel_title", "video_id", "url", "content_type", "view_count"]],
+        top[["channel_title", "title", "url", "view_count", "published_at", "video_id", "content_type"]],
         column_config={
-            "title": st.column_config.TextColumn("Title", width="large"),
             "channel_title": st.column_config.TextColumn("Channel", width="medium"),
+            "title": st.column_config.TextColumn("Title", width="medium"),
+            "view_count": st.column_config.NumberColumn("Views", width="small", format="%,d"),
+            "published_at": st.column_config.DatetimeColumn("Published", width="small", format="D MMM YYYY"),
             "video_id": st.column_config.TextColumn("Video ID", width="small"),
             "url": st.column_config.LinkColumn("Watch", display_text="Open ↗", width="small"),
             "content_type": st.column_config.TextColumn("Type", width="small"),
-            "view_count": st.column_config.NumberColumn("Views", width="small", format="%,d"),
         },
         hide_index=True,
     )
@@ -313,14 +367,16 @@ with tab3:
     )
 
 with tab4:
-    st.subheader("Channel summary")
+    st.subheader("Channels Overview")
     channel_summary_sorted = channels[
-        ["title", "category", "subscriber_count", "view_count", "video_count"]
-    ].sort_values("view_count", ascending=False)
+        ["title", "category", "subscriber_count", "view_count", "video_count", "channel_id"]
+    ].sort_values("view_count", ascending=False).copy()
+    channel_summary_sorted["url"] = "https://www.youtube.com/channel/" + channel_summary_sorted["channel_id"]
     st.dataframe(
-        channel_summary_sorted,
+        channel_summary_sorted[["title", "url", "view_count", "subscriber_count", "video_count", "category"]],
         column_config={
-            "title": st.column_config.TextColumn("Channel", width="large"),
+            "title": st.column_config.TextColumn("Channel", width="medium"),
+            "url": st.column_config.LinkColumn("Visit", display_text="Open ↗", width="small"),
             "category": st.column_config.TextColumn("Category", width="small"),
             "subscriber_count": st.column_config.NumberColumn("Subscribers", width="small", format="%,d"),
             "view_count": st.column_config.NumberColumn("Total views", width="small", format="%,d"),
@@ -328,3 +384,79 @@ with tab4:
         },
         hide_index=True,
     )
+
+# with tab5:
+#     st.subheader("Performance by content theme")
+#
+#     available_methods = themes["method"].unique().tolist()
+#     if not available_methods:
+#         st.info("No theme data yet. Run theme_extraction.py to generate themes.")
+#     else:
+#         method_counts = themes["method"].value_counts()
+#         default_method = method_counts.idxmax()
+#
+#         method_choice = st.radio(
+#             "Theme source",
+#             available_methods,
+#             index=available_methods.index(default_method),
+#             horizontal=True,
+#             format_func=lambda m: m.capitalize() if m != "llm" else "LLM",
+#             help="LLM themes are more specific; clustering themes are faster but broader.",
+#         )
+#
+#         theme_data = get_theme_data(filtered, themes, method_choice)
+#
+#         if theme_data.empty:
+#             st.info(f"No '{method_choice}' theme data available for the currently filtered channels.")
+#         else:
+#             st.caption(f"{len(theme_data):,} of {len(filtered):,} filtered videos have a '{method_choice}' theme assigned.")
+#
+#         theme_summary = (
+#             theme_data.groupby("theme_label")
+#             .agg(videos=("video_id", "count"), avg_views=("view_count", "mean"))
+#             .reset_index()
+#             .sort_values("avg_views", ascending=False)
+#         )
+#
+#         min_videos = st.slider(
+#             "Minimum videos per theme (filters out one-off/noisy themes)",
+#             min_value=1, max_value=20, value=3,
+#         )
+#         theme_summary = theme_summary[theme_summary["videos"] >= min_videos]
+#
+#         if theme_summary.empty:
+#             st.warning(f"No themes have at least {min_videos} videos. Try lowering the minimum.")
+#         else:
+#             st.subheader(f"Avg. views by theme (top 20, min {min_videos} videos)")
+#             top_themes_chart_df = theme_summary.head(20)
+#             theme_chart = (
+#                 alt.Chart(top_themes_chart_df)
+#                 .mark_bar(color="#2EC4B6")
+#                 .encode(
+#                     x=alt.X("avg_views:Q", title="Avg. views"),
+#                     y=alt.Y("theme_label:N", title="Theme", sort="-x"),
+#                     tooltip=["theme_label", "videos", "avg_views"],
+#                 )
+#             )
+#             st.altair_chart(theme_chart, width="stretch")
+#
+#             st.subheader("Videos by theme")
+#             theme_options = sorted(theme_data["theme_label"].unique())
+#             selected_theme = st.selectbox("Choose a theme to inspect", theme_options)
+#
+#             theme_videos = theme_data[theme_data["theme_label"] == selected_theme].copy()
+#             theme_videos = theme_videos.sort_values("view_count", ascending=False)
+#             theme_videos["url"] = "https://www.youtube.com/watch?v=" + theme_videos["video_id"]
+#
+#             st.caption(f"{len(theme_videos):,} video(s) labeled '{selected_theme}'")
+#             st.dataframe(
+#                 theme_videos[["title", "channel_title", "url", "content_type", "view_count"]],
+#                 column_config={
+#                     "title": st.column_config.TextColumn("Title", width="large"),
+#                     "channel_title": st.column_config.TextColumn("Channel", width="medium"),
+#                     "url": st.column_config.LinkColumn("Watch", display_text="Open ↗", width="small"),
+#                     "content_type": st.column_config.TextColumn("Type", width="small"),
+#                     "view_count": st.column_config.NumberColumn("Views", width="small", format="%,d"),
+#                 },
+#                 hide_index=True,
+#             )
