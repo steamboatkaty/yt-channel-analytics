@@ -451,6 +451,24 @@ with tab6:
             .sort_values("total_views", ascending=False)
         )
 
+        st.subheader("Summary by channel")
+        summary_table = channel_ls_summary.copy()
+        summary_table["avg_duration_min"] = summary_table["avg_duration_seconds"] / 60
+
+        st.dataframe(
+            summary_table[
+                ["channel_title", "livestreams", "avg_views", "total_views", "avg_duration_min"]
+            ],
+            column_config={
+                "channel_title": st.column_config.TextColumn("Channel", width="medium"),
+                "livestreams": st.column_config.NumberColumn("Livestreams", width="small", format="%,d"),
+                "avg_views": st.column_config.NumberColumn("Avg. views", width="small", format="%,d"),
+                "total_views": st.column_config.NumberColumn("Total views", width="small", format="%,d"),
+                "avg_duration_min": st.column_config.NumberColumn("Avg. duration (min)", width="small", format="%,.0f"),
+            },
+            hide_index=True,
+        )
+
         st.subheader("Total views by channel (top 20)")
         top_total_views_df = channel_ls_summary.head(20)  # already sorted by total_views
         total_views_chart = (
