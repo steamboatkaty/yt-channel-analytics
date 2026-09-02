@@ -134,6 +134,16 @@ def load_data():
             videos["actual_end_time"] - videos["actual_start_time"]
     ).dt.total_seconds()
 
+    # Views per day since published -- raw view_count unfairly favors
+    # older uploads within the 90-day window just because they've had
+    # more time to accumulate views. Clipped to a 1-day minimum so a
+    # video published a few hours ago doesn't produce a wildly inflated
+    # number from dividing by a tiny fraction of a day.
+    days_since_published = (
+        pd.Timestamp.now(tz="UTC") - videos["published_at"]
+    ).dt.total_seconds() / 86400
+    videos["views_per_day"] = videos["view_count"] / days_since_published.clip(lower=1)
+
     return channels, videos, themes
 
 
@@ -361,8 +371,26 @@ with tab2:
     st.subheader("Top 50 videos by views")
     top = filtered.sort_values("view_count", ascending=False).head(50).copy()
     top["url"] = "https://www.youtube.com/watch?v=" + top["video_id"]
+
+    top5 = top.head(5)
+    cols = st.columns(5)
+    for rank, (col, (_, video)) in enumerate(zip(cols, top5.iterrows()), start=1):
+        with col:
+            st.image(f"https://img.youtube.com/vi/{video['video_id']}/hqdefault.jpg", width="stretch")
+            st.markdown(f"**#{rank}**")
+            title = video["title"]
+            st.markdown(
+                f'<div style="height: 3em; overflow: hidden; display: -webkit-box; '
+                f'-webkit-line-clamp: 2; -webkit-box-orient: vertical;">{title}</div>',
+                unsafe_allow_html=True,
+            )
+            st.caption(video["channel_title"])
+            st.markdown(f"**{video['view_count']:,}** views")
+            st.link_button("Watch ↗", video["url"], width="stretch")
     st.dataframe(
-        top[["channel_title", "title", "url", "view_count", "published_at", "video_id", "content_type"]],
+        top[[
+            "channel_title", "title", "url", "view_count", "views_per_day", "published_at", "video_id", "content_type"
+        ]],
         column_config={
             "channel_title": st.column_config.TextColumn("Channel", width="medium"),
             "title": st.column_config.TextColumn("Title", width="medium"),
@@ -371,6 +399,7 @@ with tab2:
             "video_id": st.column_config.TextColumn("Video ID", width="small"),
             "url": st.column_config.LinkColumn("Watch", display_text="Open ↗", width="small"),
             "content_type": st.column_config.TextColumn("Type", width="small"),
+    "views_per_day": st.column_config.NumberColumn("Views/day", width="small", format="%,.0f"),
         },
         hide_index=True,
     )

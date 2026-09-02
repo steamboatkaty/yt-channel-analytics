@@ -110,6 +110,19 @@ def init_db(conn):
             FOREIGN KEY (video_id) REFERENCES videos(video_id)
         );
         
+        -- A video can have zero to many localized (title, description)
+        -- pairs, one per language YouTube has translated content for --
+        -- same multi-value situation as topics/themes: separate table
+        -- rather than forcing it into a one-row-per-video shape.
+        CREATE TABLE IF NOT EXISTS video_localizations (
+            video_id TEXT,
+            language_code TEXT,
+            localized_title TEXT,
+            localized_description TEXT,
+            PRIMARY KEY (video_id, language_code),
+            FOREIGN KEY (video_id) REFERENCES videos(video_id)
+        );
+        
         """
     )
     # Migration: if the DB was created before "category" existed, add it now
@@ -148,6 +161,14 @@ def init_db(conn):
         conn.execute("ALTER TABLE videos ADD COLUMN concurrent_viewers INTEGER")
     except sqlite3.OperationalError:
         pass  # column already exists
+    conn.commit()
+
+    # Migration: default language fields (single value per video)
+    for column in ("default_audio_language", "default_language"):
+        try:
+            conn.execute(f"ALTER TABLE videos ADD COLUMN {column} TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
     conn.commit()
 
 
@@ -275,7 +296,7 @@ def fetch_video_details(youtube, video_ids: list) -> list:
     for i in range(0, len(video_ids), 50):
         batch = video_ids[i : i + 50]
         resp = youtube.videos().list(
-            part="snippet,statistics,contentDetails,liveStreamingDetails", id=",".join(batch)
+            part="snippet,statistics,contentDetails,liveStreamingDetails,localizations", id=",".join(batch)
         ).execute()
 
         for item in resp["items"]:
@@ -320,6 +341,22 @@ def fetch_video_details(youtube, video_ids: list) -> list:
         # rows unless a fetch happens to land mid-stream.
         live = item.get("liveStreamingDetails", {})
         concurrent_viewers = live.get("concurrentViewers")
+
+        default_audio_language = item["snippet"].get("defaultAudioLanguage")
+        default_language = item["snippet"].get("defaultLanguage")
+
+        # localizations is a dict keyed by language code, e.g.
+        # {"es": {"title": "...", "description": "..."}, "fr": {...}}.
+        # Most videos have none at all -- this is usually an empty dict.
+        localizations = [
+            {
+                "language_code": lang_code,
+                "localized_title": loc.get("title", ""),
+                "localized_description": loc.get("description", ""),
+            }
+            for lang_code, loc in item.get("localizations", {}).items()
+        ]
+
         videos.append(
             {
                 "video_id": item["id"],
@@ -337,6 +374,9 @@ def fetch_video_details(youtube, video_ids: list) -> list:
                 "actual_end_time": live.get("actualEndTime"),
                 "scheduled_start_time": live.get("scheduledStartTime"),
                 "concurrent_viewers": int(concurrent_viewers) if concurrent_viewers is not None else None,
+                "default_audio_language": default_audio_language,
+                "default_language": default_language,
+                "localizations": localizations,
             }
         )
 
@@ -397,8 +437,9 @@ def main():
                 """INSERT OR REPLACE INTO videos
                    (video_id, channel_id, title, description, tags, published_at, duration_seconds,
                     is_short, view_count, like_count, comment_count, actual_start_time,
-                    actual_end_time, scheduled_start_time, concurrent_viewers, fetched_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    actual_end_time, scheduled_start_time, concurrent_viewers,
+                    default_audio_language, default_language, fetched_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     v["video_id"],
                     v["channel_id"],
@@ -415,9 +456,29 @@ def main():
                     v["actual_end_time"],
                     v["scheduled_start_time"],
                     v["concurrent_viewers"],
+                    v["default_audio_language"],
+                    v["default_language"],
                     now,
                 ),
             )
+
+            # Refresh this video's localizations from scratch each fetch --
+            # same reasoning as elsewhere: if YouTube's available
+            # translations change between fetches, stale rows shouldn't
+            # stick around silently.
+            conn.execute("DELETE FROM video_localizations WHERE video_id = ?", (v["video_id"],))
+            for loc in v["localizations"]:
+                conn.execute(
+                    """INSERT OR REPLACE INTO video_localizations
+                       (video_id, language_code, localized_title, localized_description)
+                       VALUES (?, ?, ?, ?)""",
+                    (
+                        v["video_id"],
+                        loc["language_code"],
+                        loc["localized_title"],
+                        loc["localized_description"],
+                    ),
+                )
 
         conn.commit()
         print(f"  Done: {channel['title']} ({len(videos)} videos saved)\n")
